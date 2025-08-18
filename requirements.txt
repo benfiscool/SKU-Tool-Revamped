@@ -1,0 +1,9 @@
+pandas
+openpyxl
+xlrd
+requests
+reportlab
+pyinstaller
+pillow
+google-auth-oauthlib
+jinja2
