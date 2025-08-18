@@ -1,0 +1,28 @@
+# Ignore data exports, generated files, caches, and secrets
+data/
+Excel Exports/
+"Old DB"/
+
+# Excel and other binary exports
+*.xlsx
+*.xlsm
+*.xls
+
+# Generated docs
+*.pdf
+
+# python caches
+__pycache__/
+*.pyc
+
+# local credentials and tokens
+credentials.json
+token.pickle
+
+# IDE/workspace
+.vscode/
+*.code-workspace
+
+# OS files
+Thumbs.db
+.DS_Store
