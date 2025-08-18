@@ -1,7 +1,8 @@
 # Ignore data exports, generated files, caches, and secrets
 data/
 Excel Exports/
-"Old DB"/
+Old DB/
+Old DB/*
 
 # Excel and other binary exports
 *.xlsx
