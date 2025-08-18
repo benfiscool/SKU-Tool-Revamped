@@ -5933,21 +5933,55 @@ import subprocess
 import requests
 import time
 import os
+import sys
+import threading
+
 def ensure_web_service_running():
+    """Ensure the helper Flask web service is running.
+
+    When running from a PyInstaller bundle (frozen), there is no standalone
+    Python script on disk to spawn. In that case import the web service
+    module and run it in a background thread. Otherwise spawn the script
+    using the local Python interpreter.
+    """
     global web_service_process
     try:
         requests.get('http://localhost:5000')
+        return
     except Exception:
-        # Not running, so launch it
+        pass
+
+    # Not running, so start it.
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle — run the Flask app in a background thread
+        try:
+            # Import the module packaged inside the bundle
+            import ap_sku_tool_web_service as websvc
+
+            def _run_service():
+                try:
+                    # Use 127.0.0.1 for predictable binding
+                    websvc.app.run(host='127.0.0.1', port=5000, threaded=True)
+                except Exception as e:
+                    print("Web service failed to start inside bundle:", e)
+
+            t = threading.Thread(target=_run_service, daemon=True)
+            t.start()
+            web_service_process = None
+        except Exception as e:
+            print("Failed to start internal web service:", e)
+    else:
+        # Normal (non-frozen) execution: spawn the helper script as a separate process
         service_path = os.path.join(os.path.dirname(__file__), "ap_sku_tool_web_service.py")
-        web_service_process = subprocess.Popen(['python', service_path])
-        # Wait for service to start
-        for _ in range(10):
-            try:
-                requests.get('http://localhost:5000')
-                break
-            except Exception:
-                time.sleep(1)
+        web_service_process = subprocess.Popen([sys.executable, service_path])
+
+    # Wait for service to start (give it a few seconds)
+    for _ in range(10):
+        try:
+            requests.get('http://localhost:5000')
+            break
+        except Exception:
+            time.sleep(1)
 
 def check_database_integrity():
     """Check if current database files are corrupted and offer backup restore."""
