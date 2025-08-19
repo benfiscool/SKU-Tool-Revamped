@@ -205,15 +205,14 @@ BigCommerce (BC) workflows — detailed
 The following are BC-focused step-by-step workflows that map common e-commerce tasks (create variations, update pricing, add/remove options, reporting, merging, exports, renames, and cloud-save best practices) to concrete actions in the SKU Tool.
 
 1) Creating variations in BigCommerce → Import → Configure → Export (and verify order)
-  - In BigCommerce: Create the product and add variant rows (one row per variant). Include a clear "Options" column that contains Name=...|Value=... blobs or otherwise follows your store's export format.
+  - In BigCommerce: Create the product variants
   - Export the product/variants CSV from BC.
   - In SKU Tool: File → Import CSV from BigCommerce... and select the CSV.
   - If prompted that the Base SKU exists, choose overwrite or load existing depending on whether you want to replace DB contents.
   - Check/adjust the Base SKU name and make sure suffix (SSS/MXT) is correct.
   - Set Base Price & Base Weight in the top controls.
-  - Options → Manual Controls → Parse Table to populate the master option table.
   - Review the Configure panel; edit Add'l Cost/Add'l Weight and Associated SKUs as needed.
-  - Options → Manual Controls → Generate New SKUs to populate the "New SKU" column. Confirm the prefix and padding logic is correct (prefix entry behavior).
+
   - IMPORTANT: If you plan to import the generated New SKUs back into BigCommerce, verify the order and formatting:
     - Step A: Use File → Export Current SKU Breakout to Excel... (or Batch Export) to create an Excel with the New SKU column.
     - Step B: Open the exported Excel and confirm the New SKU column is the one BC expects (header, order). Reorder columns if necessary using the Excel Reorder Tool.
@@ -230,11 +229,8 @@ The following are BC-focused step-by-step workflows that map common e-commerce t
   - Scenario: You add a new option (e.g., Color) or remove an option value (e.g., "Blue") in BC and want to reflect that in the tool.
   - Step 1: Export the updated CSV from BC.
   - Step 2: In SKU Tool, File → Import CSV from BigCommerce... and point to the new CSV.
-  - Step 3: If the new CSV includes added options, Parse Table will populate them as new rows in the master table.
-  - Step 4: If you removed option values in BC, find those values in the Configure panel and delete the corresponding rows from the master table (select and delete via the UI). Do not leave orphaned option values.
-  - Step 5: Save locally (Ctrl+S) then Save + Upload (Ctrl+Shift+S) to push the new DB to the cloud if you use the cloud-sync workflow.
-  - Step 6: Run Generate New SKUs (Options → Manual Controls → Generate New SKUs) to regenerate New SKUs based on current option set.
-  - Step 7: Export SKUs (Excel) and re-import to BigCommerce if you need BC to reflect the regenerated New SKUs.
+  - Step 3: Treat it as a brand new sku and redo the options. I wish there was a better way but alas there is not.
+    ** BIG BIG BIG **  **You must make sure the order it shows on the BigCommerce website and the one it shows in the excel is the same. This is the exact scenario in which it really likes to change, so triple check and then use excel sku reorder tool under the utilities menu.**
 
 4) Reports — how to generate each kind and use-cases
   - Base SKU Summary Report

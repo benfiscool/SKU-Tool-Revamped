@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from flask import Flask, request, jsonify
 import webbrowser
+import datetime
 import pickle
 import io
 
@@ -70,6 +71,23 @@ def get_drive_service():
                 creds = None
         
         if not creds:
+            # Diagnostic: log whether credentials file exists and what files are in script dir
+            try:
+                diag = []
+                diag.append(f"CREDENTIALS_FILE={CREDENTIALS_FILE}")
+                diag.append(f"exists={os.path.exists(CREDENTIALS_FILE)}")
+                try:
+                    listing = os.listdir(SCRIPT_DIR)
+                    diag.append(f"script_dir_listing={listing}")
+                except Exception as _e:
+                    diag.append(f"script_dir_list_error={_e}")
+                with open(os.path.join(DATA_DIR, 'upload_errors.log'), 'a', encoding='utf-8') as f:
+                    f.write(datetime.datetime.now().isoformat() + " - get_drive_service diagnostics:\n")
+                    for line in diag:
+                        f.write(line + "\n")
+                    f.write("\n")
+            except Exception:
+                pass
             if not os.path.exists(CREDENTIALS_FILE):
                 raise FileNotFoundError("Missing credentials.json for Google Drive API.")
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
@@ -127,10 +145,31 @@ def api_upload():
     file_path = request.json.get('file_path')
     drive_filename = request.json.get('drive_filename') or os.path.basename(file_path)
     try:
+        # Validate input
+        if not file_path or not os.path.exists(file_path):
+            msg = f"Local file not found: {file_path}"
+            # Log missing file
+            try:
+                with open(os.path.join(DATA_DIR, 'upload_errors.log'), 'a', encoding='utf-8') as lf:
+                    lf.write(f"{datetime.datetime.now().isoformat()} - {msg}\n")
+            except Exception:
+                pass
+            return jsonify({"status": "error", "message": msg}), 400
         file_id = upload_file(file_path, drive_filename)
         return jsonify({"status": "success", "file_id": file_id, "message": f"Uploaded {file_path} as {drive_filename}"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        # Write traceback to a log file for diagnosis
+        try:
+            import traceback, datetime
+            tb = traceback.format_exc()
+            with open(os.path.join(DATA_DIR, 'upload_errors.log'), 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.datetime.now().isoformat()} - Exception during upload: {e}\n")
+                f.write(tb + "\n\n")
+        except Exception:
+            pass
+        # Return error message (shortened) to client for debugging
+        short_msg = str(e)
+        return jsonify({"status": "error", "message": short_msg}), 500
 
 @app.route('/download', methods=['POST'])
 def api_download():

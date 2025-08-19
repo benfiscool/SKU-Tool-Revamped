@@ -7,3 +7,8 @@ pyinstaller
 pillow
 google-auth-oauthlib
 jinja2
+flask
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib

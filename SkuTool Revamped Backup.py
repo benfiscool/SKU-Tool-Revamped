@@ -1490,29 +1490,13 @@ class OptionsParserApp(tk.Tk):
             dt = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             db_path = os.path.join(folder, f"sku_database_{dt}.json")
         
-        print(f"DEBUG: Saving to file: {db_path}")
-        
         base_sku = self.base_sku_entry.get().strip()
         if not base_sku:
             # If the entry is empty, try the stored value as fallback
             base_sku = self.base_sku.strip() if hasattr(self, 'base_sku') and self.base_sku else ''
-        
-        if not base_sku:
-            # Don't save if no base SKU is set
-            print(f"DEBUG: Save failed - no base SKU set. Entry: '{self.base_sku_entry.get()}', self.base_sku: '{getattr(self, 'base_sku', 'NOT SET')}'")
-            return
             
         # Update the stored base_sku to match what we're saving
         self.base_sku = base_sku
-            
-        # DEBUG: Print what we're about to save
-        print(f"DEBUG: Saving base SKU: '{base_sku}'")
-        print(f"DEBUG: input_df is None: {self.input_df is None}")
-        print(f"DEBUG: master_df is None: {self.master_df is None}")
-        if self.input_df is not None:
-            print(f"DEBUG: input_df rows: {len(self.input_df)}")
-        if self.master_df is not None:
-            print(f"DEBUG: master_df rows: {len(self.master_df)}")
             
         if os.path.exists(self._get_latest_database_path()):
             try:
@@ -1591,7 +1575,6 @@ class OptionsParserApp(tk.Tk):
     def load_from_database(self):
         self.save_to_database(temp=True)
         db_path = self._get_latest_database_path()
-        print(f"DEBUG: Loading from file: {db_path}")
         if not os.path.exists(db_path):
             with open(db_path, "w", encoding="utf-8") as f:
                 json.dump({}, f, indent=2)
@@ -1730,13 +1713,6 @@ class OptionsParserApp(tk.Tk):
         if not base_sku:
             return
         state = db[base_sku]
-
-        # DEBUG: Check what we're loading
-        print(f"DEBUG: Loading base SKU: '{base_sku}'")
-        print(f"DEBUG: State keys: {list(state.keys())}")
-        print(f"DEBUG: input_df records: {len(state.get('input_df', []))}")
-        print(f"DEBUG: master_df records: {len(state.get('master_df', []))}")
-        print(f"DEBUG: in_tree_df records: {len(state.get('in_tree_df', []))}")
 
         # --- Correct DataFrame loading for orient='records' with fallback for missing keys ---
         self.input_df = pd.DataFrame(state.get('input_df', []))
@@ -2593,7 +2569,6 @@ class OptionsParserApp(tk.Tk):
         file_paths.sort(key=lambda x: x[1], reverse=True)
         
         latest_file = os.path.join(folder, file_paths[0][0])
-        print(f"DEBUG: _get_latest_database_path returning: {latest_file}")
         return latest_file
     
     def delete_base_sku(self):
@@ -4501,19 +4476,40 @@ class OptionsParserApp(tk.Tk):
         """Start upload process and quit only after it completes"""
         # Show upload dialog and start upload
         upload_dialog, status_labels = show_upload_status_dialog(self)
-        
+
+        # Keep track of scheduled after IDs so we can cancel them before destroying the dialog
+        upload_after_ids = []
+
         def set_status(idx, value):
+            """Update a status label safely on the dialog and record the after id."""
             def update_ui():
-                if upload_dialog.winfo_exists():
-                    status_labels[idx]['text'] = value
-                    if value == '✓':
-                        status_labels[idx]['foreground'] = 'green'
-                    elif value == 'X':
-                        status_labels[idx]['foreground'] = 'red'
-                    else:
-                        status_labels[idx]['foreground'] = 'orange'
-                    upload_dialog.update_idletasks()
-            upload_dialog.after(0, update_ui)
+                try:
+                    if upload_dialog.winfo_exists():
+                        status_labels[idx]['text'] = value
+                        if value == '✓':
+                            status_labels[idx]['foreground'] = 'green'
+                        elif value == 'X':
+                            status_labels[idx]['foreground'] = 'red'
+                        else:
+                            status_labels[idx]['foreground'] = 'orange'
+                        upload_dialog.update_idletasks()
+                except Exception:
+                    # Widget likely destroyed or gone; ignore
+                    pass
+
+            try:
+                aid = upload_dialog.after(0, update_ui)
+                upload_after_ids.append(aid)
+            except Exception:
+                pass
+
+        def schedule_on_dialog(callable_fn):
+            try:
+                aid = upload_dialog.after(0, callable_fn)
+                upload_after_ids.append(aid)
+                return aid
+            except Exception:
+                return None
 
         def spin_status(idx, stop_event):
             import itertools
@@ -4521,12 +4517,19 @@ class OptionsParserApp(tk.Tk):
             while not stop_event.is_set():
                 if stop_event.wait(0.3):
                     break
+
                 def update_spinner():
-                    if upload_dialog.winfo_exists() and not stop_event.is_set():
-                        status_labels[idx]['text'] = next(spinner_cycle)
-                        status_labels[idx]['foreground'] = 'orange'
-                        upload_dialog.update_idletasks()
-                upload_dialog.after(0, update_spinner)
+                    try:
+                        if upload_dialog.winfo_exists() and not stop_event.is_set():
+                            status_labels[idx]['text'] = next(spinner_cycle)
+                            status_labels[idx]['foreground'] = 'orange'
+                            upload_dialog.update_idletasks()
+                    except Exception:
+                        # Widget likely destroyed, ignore
+                        pass
+
+                # Schedule the spinner update and record the after id
+                schedule_on_dialog(update_spinner)
 
         def do_upload_then_quit():
             import threading
@@ -4540,20 +4543,28 @@ class OptionsParserApp(tk.Tk):
                 spin1 = threading.Event()
                 t1 = threading.Thread(target=spin_status, args=(0, spin1), daemon=True)
                 t1.start()
-                
+
                 local_path = get_latest_database_path()
                 drive_filename = f"sku_database_{dt}.json"
                 print(f"DEBUG: Uploading database file: {local_path}")
-                
+
                 resp = requests.post('http://localhost:5000/upload', json={
                     'file_path': local_path,
                     'drive_filename': drive_filename
                 })
-                data = resp.json()
-                
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {}
+                # Log server response for debugging
+                try:
+                    print(f"DEBUG: upload resp status={resp.status_code}, body={resp.text}")
+                except Exception:
+                    pass
+
                 spin1.set()
                 t1.join(timeout=1)
-                
+
                 if data.get('status') == 'success':
                     set_status(0, '✓')
                 else:
@@ -4564,7 +4575,7 @@ class OptionsParserApp(tk.Tk):
                 spin2 = threading.Event()
                 t2 = threading.Thread(target=spin_status, args=(1, spin2), daemon=True)
                 t2.start()
-                
+
                 cost_db_path = os.path.join(data_dir, "cost_db.json")
                 if os.path.exists(cost_db_path):
                     cost_drive_filename = f"cost_db_{dt}.json"
@@ -4572,11 +4583,18 @@ class OptionsParserApp(tk.Tk):
                         'file_path': cost_db_path,
                         'drive_filename': cost_drive_filename
                     })
-                    data = resp.json()
-                    
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    try:
+                        print(f"DEBUG: upload resp status={resp.status_code}, body={resp.text}")
+                    except Exception:
+                        pass
+
                     spin2.set()
                     t2.join(timeout=1)
-                    
+
                     if data.get('status') == 'success':
                         set_status(1, '✓')
                     else:
@@ -4586,35 +4604,112 @@ class OptionsParserApp(tk.Tk):
                     spin2.set()
                     t2.join(timeout=1)
                     set_status(1, '✓')
-                
+
                 # Brief pause to show final status
                 time.sleep(1.0)
-                
+
             except Exception as e:
                 success = False
                 print(f"Upload error: {e}")
-            
+
             finally:
                 # Schedule the final cleanup and quit in the main thread
                 def finish_and_quit():
+                    # allow reassigning dialog and labels for retry
+                    nonlocal upload_dialog, status_labels, upload_after_ids
                     try:
+                        # Cancel any pending after callbacks scheduled on the dialog
+                        try:
+                            for aid in upload_after_ids:
+                                try:
+                                    upload_dialog.after_cancel(aid)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        # Destroy the dialog now that spinners are cancelled
                         if upload_dialog.winfo_exists():
                             upload_dialog.destroy()
-                    except:
+                    except Exception:
                         pass
-                    
-                    # Show result (briefly)
+
+                    # If upload succeeded, quit; otherwise prompt the user
                     if success:
-                        # Don't show success message, just quit cleanly
-                        pass
+                        try:
+                            self._shutdown_and_quit()
+                        except Exception:
+                            try:
+                                self.quit()
+                            except Exception:
+                                pass
+                        return
+
+                    # Upload failed: let the user decide (Retry / Close Anyway / Cancel)
+                    try:
+                        # modal choice: Retry, Close Anyway, Cancel
+                        choice = messagebox.askretrycancel(
+                            "Upload Failed",
+                            "Uploading failed. Retry upload? (Cancel will keep the app open)",
+                            parent=self
+                        )
+                    except Exception:
+                        # If parent/dialog gone or messagebox fails, default to not closing
+                        choice = True  # Treat as Retry
+
+                    if choice is True:
+                        # User selected Retry -> start another background upload using a fresh dialog
+                        try:
+                            # Recreate dialog and status labels and reset after-ids tracker
+                            upload_dialog, status_labels = show_upload_status_dialog(self)
+                            upload_after_ids = []
+                            import threading
+                            # Small delay to allow dialog to initialize then start upload thread
+                            def restart():
+                                try:
+                                    time.sleep(0.2)
+                                except Exception:
+                                    pass
+                                t = threading.Thread(target=do_upload_then_quit, daemon=True)
+                                t.start()
+                            try:
+                                upload_dialog.after(200, restart)
+                            except Exception:
+                                restart()
+                        except Exception:
+                            # If we can't recreate dialog, keep app open
+                            pass
+                        return
                     else:
-                        messagebox.showerror("Upload Failed", 
-                            "Upload failed, but application will close anyway.", parent=self)
-                    
-                    # Now shutdown and quit
-                    self._shutdown_and_quit()
-                
-                upload_dialog.after(500, finish_and_quit)
+                        # User selected Cancel/CloseAnyway (askretrycancel returns False for Cancel)
+                        # If they explicitly chose to not retry, ask to Close Anyway
+                        try:
+                            close_any = messagebox.askyesno(
+                                "Close Anyway?",
+                                "Do you want to close the application anyway?",
+                                parent=self
+                            )
+                        except Exception:
+                            close_any = False
+
+                        if close_any:
+                            try:
+                                self._shutdown_and_quit()
+                            except Exception:
+                                try:
+                                    self.quit()
+                                except Exception:
+                                    pass
+                            return
+                        else:
+                            # Keep the application open; do not quit
+                            return
+
+                try:
+                    upload_dialog.after(500, finish_and_quit)
+                except Exception:
+                    # If scheduling on dialog fails, run immediately on main thread
+                    finish_and_quit()
 
         # Start upload in background thread
         upload_thread = threading.Thread(target=do_upload_then_quit, daemon=True)
@@ -6426,7 +6521,6 @@ def get_latest_database_path():
     file_paths.sort(key=lambda x: x[1], reverse=True)
     
     latest_file = os.path.join(folder, file_paths[0][0])
-    print(f"DEBUG: get_latest_database_path returning: {latest_file}")
     return latest_file
 
 def push_database_to_cloud():
@@ -6781,17 +6875,40 @@ if __name__ == '__main__':
         spin1.set()
         set_status(0, '✓')
 
+        # Helper: POST JSON with retries and safe JSON decode
+        def post_json_with_retries(url, payload, retries=6, backoff=0.6, timeout=5):
+            import requests
+            import time
+            last_exc = None
+            for attempt in range(1, retries + 1):
+                try:
+                    resp = requests.post(url, json=payload, timeout=timeout)
+                except requests.exceptions.RequestException as e:
+                    last_exc = e
+                    if attempt < retries:
+                        time.sleep(backoff)
+                        backoff *= 1.5
+                        continue
+                    return {"status": "error", "message": f"Request failed: {e}"}
+
+                # Got a response, try to parse JSON safely
+                try:
+                    return resp.json()
+                except Exception as je:
+                    # Return an error dict with some context
+                    text = (resp.text[:1000] if resp.text is not None else '')
+                    return {"status": "error", "message": f"Invalid JSON response: {je}", "text": text, "code": resp.status_code}
+
         # Step 2: Syncing SKU Breakouts with Cloud
         spin2 = threading.Event()
         t2 = threading.Thread(target=spin_status, args=(1, spin2, status_labels), daemon=True)
         t2.start()
         # Download main database only
-        resp = requests.post('http://localhost:5000/pull_latest_db', json={
+        data = post_json_with_retries('http://localhost:5000/pull_latest_db', {
             'prefix': 'sku_database_',
             'suffix': '.json'
         })
-        data = resp.json()
-        if data.get('status') == 'success':
+        if isinstance(data, dict) and data.get('status') == 'success':
             script_dir = os.path.dirname(os.path.abspath(__file__))
             data_dir = get_data_dir()
             os.makedirs(data_dir, exist_ok=True)
@@ -6807,12 +6924,11 @@ if __name__ == '__main__':
         t3 = threading.Thread(target=spin_status, args=(2, spin3, status_labels), daemon=True)
         t3.start()
         # Download cost database
-        resp = requests.post('http://localhost:5000/pull_latest_db', json={
+        data = post_json_with_retries('http://localhost:5000/pull_latest_db', {
             'prefix': 'cost_db',
             'suffix': '.json'
         })
-        data = resp.json()
-        if data.get('status') == 'success':
+        if isinstance(data, dict) and data.get('status') == 'success':
             src = data['local_path']
             dst = os.path.join(data_dir, "cost_db.json")
             shutil.copy2(src, dst)
