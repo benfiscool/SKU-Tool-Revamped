@@ -241,8 +241,6 @@ class OptionsParserApp(tk.Tk):
         filemenu.add_command(label="Bulk Update Base Prices...", command=self.bulk_update_base_prices)
         filemenu.add_separator()
 
-        filemenu.add_command(label="Save Database Locally", command=self.save_to_database)
-        filemenu.add_command(label="Save and Upload to Cloud", command=lambda:[self.save_to_database,self._ctrl_shift_s] if not isTest else self.save_to_database)
         filemenu.add_command(label="Revert to Backup Database", command=self.revert_to_backup)
         filemenu.add_command(label="Restore from Local Backup to Cloud", command=lambda: restore_from_local_backup())
         filemenu.add_separator()
@@ -263,9 +261,8 @@ class OptionsParserApp(tk.Tk):
         optionsmenu.add_command(label="Config...", command=self.open_options_window)
         optionsmenu.add_separator()
         
-        manualmenu.add_command(label="Parse Table", command=lambda: [self.parse_options(), self._mark_unsaved()])
+
         manualmenu.add_command(label="Generate New SKUs", command=lambda: [self.generate_new_skus(), self._mark_unsaved()])
-        manualmenu.add_command(label="Extract Base SKU", command=lambda: [self.extract_base_sku(), self._mark_unsaved()])
         optionsmenu.add_cascade(label="Manual Controls", menu=manualmenu)
 
         menubar.add_cascade(label="Options", menu=optionsmenu)
@@ -275,9 +272,9 @@ class OptionsParserApp(tk.Tk):
         reportsmenu.add_command(label="Base SKU Summary Report...", command=self.generate_base_sku_summary_report)
         reportsmenu.add_separator()
         reportsmenu.add_command(label="Associated SKU Usage Report...", command=self.generate_associated_sku_report)
-        reportsmenu.add_separator()
-        reportsmenu.add_command(label="Base SKU Price Change Report...", command=self.generate_base_price_change_report)
-        reportsmenu.add_command(label="Associated SKU Price Change Report...", command=self.generate_associated_price_change_report)
+        # reportsmenu.add_separator()
+        # reportsmenu.add_command(label="Base SKU Price Change Report...", command=self.generate_base_price_change_report)
+        # reportsmenu.add_command(label="Associated SKU Price Change Report...", command=self.generate_associated_price_change_report)
         menubar.add_cascade(label="Reports", menu=reportsmenu)
 
         # --- Utilities menu ---
@@ -328,10 +325,10 @@ class OptionsParserApp(tk.Tk):
         self.last_export_label = ttk.Label(keyword_row, text="", foreground="gray")
         self.last_export_label.pack(side='left', padx=(10, 0))
 
-        cost_import_btn = ttk.Button(ctrl, text="Import Pricing Data", command=self.open_cost_import_window)
+        cost_import_btn = ttk.Button(ctrl, text="Import Option Pricing", command=self.open_cost_import_window)
         cost_import_btn.pack(side='right', padx=5)
 
-        cost_db_btn = ttk.Button(ctrl, text="Open Pricing Database", command=self.open_cost_db_explorer)
+        cost_db_btn = ttk.Button(ctrl, text="Option Pricing", command=self.open_cost_db_explorer)
         cost_db_btn.pack(side='right', padx=5)
 
         search_btn = ttk.Button(ctrl, text="🔍SKU Breakouts", command=self.load_from_database)
@@ -1530,9 +1527,6 @@ class OptionsParserApp(tk.Tk):
         master_df_records = self.master_df.to_dict(orient='records') if self.master_df is not None else []
         in_tree_df_records = in_tree_df.to_dict(orient='records') if in_tree_df is not None else []
         
-        print(f"DEBUG: input_df_records count: {len(input_df_records)}")
-        print(f"DEBUG: master_df_records count: {len(master_df_records)}")
-        print(f"DEBUG: in_tree_df_records count: {len(in_tree_df_records)}")
         
         state = {
             'input_df': input_df_records,
@@ -1977,6 +1971,9 @@ class OptionsParserApp(tk.Tk):
 
         # bind the trace _after_ defining on_search
         search_var.trace_add("write", on_search)
+
+        # Initial population of the tree
+        populate_tree()
 
         # --- Editing price cell on double-click ---
         def on_double_click(event):
@@ -6774,9 +6771,9 @@ def show_loading_dialog(root):
     splash.geometry("400x220")
     splash.resizable(False, False)
     
-    # Make it modal but not completely blocking
-    splash.transient(root)
-    splash.grab_set()
+    # Don't make it modal initially since root is withdrawn
+    # splash.transient(root)
+    # splash.grab_set()
     
     # Center the dialog
     splash.update_idletasks()
@@ -6787,13 +6784,12 @@ def show_loading_dialog(root):
     y = h//2 - size[1]//2
     splash.geometry(f"{size[0]}x{size[1]}+{x}+{y}")
     
-    # Bring to front but don't stay on top
-    splash.lift()
-    splash.focus_force()
+    # Initially hide it - will be shown when needed
+    splash.withdraw()
 
     steps = [
         "Launching Web Service",
-        "Syncing SKU Breakouts with Cloud",
+        "Syncing SKU Breakouts with Cloud", 
         "Syncing Option Pricing with Cloud",
         "Purging Old Database Files from Cloud",
         "Launching Main Window"
@@ -7021,10 +7017,16 @@ if __name__ == '__main__':
         app.mainloop()
 
     if not isTest:
+        # Show the splash window first
+        splash.deiconify()
+        splash.lift()
+        splash.focus_force()
+        splash.attributes('-topmost', True)  # Keep on top during loading
         threading.Thread(target=start_app, daemon=True).start()
         root.mainloop()
     else:
         # In test mode, skip the splash and web service, just start the app directly
+        splash.destroy()
         root.destroy()
         app = OptionsParserApp()
         app.mainloop()
